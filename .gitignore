@@ -3,3 +3,9 @@
 *.swp
 solver
 mini
+# Private study material and local notes, not part of the submission
+notes/assignment1.md
+notes/solver_annotated.c
+CLAUDE.local.md
+# Ripes per-run reports; results_log.csv keeps every run
+ripes-test/*.txt
