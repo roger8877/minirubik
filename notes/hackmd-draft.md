@@ -197,7 +197,166 @@ So the program must find shortest solutions **without** a full table: a search t
 small tables. That is the starting point of Stage 2.
 
 ## 3. Stage 2: Representation and Algorithm
-TODO
+
+Stage 1 showed that the full table cannot be shipped or built on the target. The program
+therefore has to find a shortest solution by searching from the given state, using only
+small tables. Code: [`ida/`](https://github.com/roger8877/minirubik/tree/main/ida).
+
+### 3.1 Search: iterative deepening A* (IDA*)
+
+The search is a depth-first search with a move limit, called `bound`. It first tries to solve
+the cube within `bound` moves; if that fails, it raises `bound` by one and searches again.
+
+```c
+unsigned bound = heuristic(p, o);
+while (!dfs(p, o, 0, bound, NO_FACE, path))
+    ++bound;
+```
+
+**Why the answer is optimal.** When the search succeeds with `bound = k`, every smaller bound
+has already been searched completely and failed, so no solution shorter than k exists.
+
+**Why it starts at h instead of 0.** The heuristic never overestimates (3.2), so no solution can
+be shorter than h(start); the bounds below it would always fail.
+
+**Why it terminates.** Every `dfs` call is limited to depth `bound`, so each iteration is finite.
+`bound` grows by one per iteration, and no state is more than 11 moves from solved, so the
+search succeeds at `bound` ≤ 11 at the latest.
+
+**Memory.** Depth-first search only keeps the current path, at most 11 moves, so there is no
+queue. `MAX_DEPTH = 11` is the HTM diameter, which bounds the path array (and later the stack).
+
+Inside the search, each call does:
+
+```c
+unsigned h = heuristic(p, o);       /* two table lookups */
+if (g + h > bound) return 0;        /* cannot finish within bound: prune */
+if (h == 0) return 1;               /* solved */
+```
+
+`g` is the number of moves made so far, so `g + h` is a lower bound on the length of any
+solution through this state. If that already exceeds `bound`, the whole subtree is skipped.
+
+**Move pruning.** Two consecutive moves of the same face either cancel or combine into one move
+(R then R2 equals R'), so they never appear in a shortest solution. After the first move only
+6 of the 9 moves are tried.
+
+**A small trace.** For the state reached by one R turn (`25314672313211`), h = 1, so `bound`
+starts at 1. The root is node 1. Its children R and R2 lead to states with h = 1 at g = 1,
+so g + h = 2 > 1 and both are pruned (nodes 2 and 3). The child R' reaches solved with h = 0
+(node 4). The program prints `R'` and reports 4 nodes.
+
+### 3.2 Heuristic and admissibility
+
+The heuristic is
+
+h(state) = max(`perm_dist[p]`, `orient_dist[o]`)
+
+where `perm_dist` is the exact number of moves needed to put all 7 cubies in their correct
+positions while ignoring orientation, and `orient_dist` is the exact number needed to fix all
+orientations while ignoring positions. Both are computed by BFS on the host.
+
+**Admissibility argument.** Report.md §4 shows that the permutation and the orientation change
+independently: a move maps the permutation to a new permutation, whatever the orientation is,
+and the same for the orientation. So any sequence of moves that solves the whole cube also
+solves the permutation on its own. Its length is therefore at least the shortest way to solve
+the permutation alone, which is `perm_dist[p]`. The same holds for `orient_dist[o]`. Since
+neither value can exceed the true distance, their maximum cannot either. This is the
+pattern-database argument of Culberson and Schaeffer, applied to two projections of the state.
+
+Gate H1 checks this directly on all 3,674,160 states (section 6).
+
+### 3.3 Representation: ranks and transition tables
+
+A state is two numbers: the permutation rank p (0..5039) and the orientation rank o (0..728),
+using the same ranking as `solver.c`. A move is two table lookups:
+
+```c
+new_p = perm_move[p][move];
+new_o = orient_move[o][move];
+```
+
+I considered two options:
+
+| | Option 1: arrays `p[7]`, `o[7]` | Option 2: ranks + transition tables |
+|---|---|---|
+| Cost of one move | loop over 7 cubies, up to 3 quarter turns, ~200 instructions | 2 lookups |
+| Cost of h | rank the arrays first, which needs multiplication | 2 lookups |
+| Static data | small | 109,611 bytes |
+
+I chose option 2: it uses the memory budget to make every node cheap, it still fits under
+128 KiB, and it removes all multiplication from the search (ranking happens once, on input).
+
+**Memory budget**
+
+| Table | Size | Bytes |
+|---|---|---|
+| `perm_move` | 5,040 x 9 x 2 bytes | 90,720 |
+| `orient_move` | 729 x 9 x 2 bytes | 13,122 |
+| `perm_dist` | 5,040 x 1 byte | 5,040 |
+| `orient_dist` | 729 x 1 byte | 729 |
+| **Total** | | **109,611 (107.0 KiB)** |
+
+Move entries need 2 bytes because ranks go up to 5,039; a byte holds at most 255.
+
+**How the tables are built** ([`ida/gen.c`](https://github.com/roger8877/minirubik/blob/main/ida/gen.c)).
+For every rank, the generator unranks it to arrays, applies each of the 9 moves with the
+`source`/`twist` tables from `solver.c`, and ranks the result. Example: from solved (rank 0),
+R gives the permutation `[1,4,2,0,3,5,6]` (rank 1104) and orientation `[1,2,0,2,1,0]` (rank 426):
+
+```text
+perm_move[0]   = {1104, 3294, 2190, 9, 16, 18, 198, 566, 368}
+orient_move[0] = { 426,    0,  426, 16, 0, 16,   0,   0,   0}
+                    R     R2    R'  B  B2  B'    D   D2   D'
+```
+
+The orientation row shows two facts from section 1: D moves never change orientation, and R2
+from solved restores it because the two twists cancel. The distance tables come from a BFS over
+each abstraction starting at rank 0:
+
+| Table | max | distribution (distance: count) |
+|---|---|---|
+| `perm_dist` | 7 | 0:1, 1:9, 2:54, 3:297, 4:1233, 5:2157, 6:1244, 7:45 |
+| `orient_dist` | 6 | 0:1, 1:2, 2:12, 3:64, 4:274, 5:336, 6:40 |
+
+So h is at most 7 while true distances reach 11; this gap is what the search has to pay for.
+
+**Not packed.** Distances fit in 4 bits, so two entries could share a byte, saving about 2.9 KB.
+But each packed lookup costs about 5 more instructions, and every node does two lookups, so
+packing would add about 10 instructions to every node in exchange for space I do not need.
+Since no table is packed, gate H4 does not apply.
+
+### 3.4 Measured search cost
+
+Running the search on all 3,674,160 states on the host (gate H3) gives the number of `dfs`
+calls ("nodes") per query:
+
+| distance | states | mean nodes | max nodes |
+|---|---|---|---|
+| 7 | 227,536 | 561.7 | 3,945 |
+| 8 | 870,072 | 2,860.7 | 14,756 |
+| 9 | 1,887,748 | 13,901.1 | 55,585 |
+| 10 | 623,800 | 48,135.8 | 250,324 |
+| 11 | 2,644 | 206,624.8 | 639,798 |
+
+- The reference vector `21345671111111` needs 233,966 nodes.
+- The hardest distance-11 state, `54721631111111`, needs **639,798** nodes, 2.7 times as many,
+  so a single sample is not enough to judge the worst case.
+- The budget is 5 x 10^7 instructions, so the assembly may spend at most about
+  **78 instructions per node**. This is the target for stages 3 and 4.
+
+The ten hardest distance-11 states are listed in
+[`ida/h3_result.txt`](https://github.com/roger8877/minirubik/blob/main/ida/h3_result.txt);
+they are the test inputs for the worst case on Ripes.
+
+### 3.5 Alternative considered
+
+A larger pattern database (for example orientation combined with the positions of a few cubies)
+would prune more and reduce the node count. It does not fit next to the transition tables
+(107 KiB + tables of tens of KiB > 128 KiB), so it would require giving up the cheap
+transition tables and paying more instructions per node. With 639,798 nodes measured and
+about 78 instructions per node available, the current design should fit; if the assembly
+measurement shows otherwise, this is the first trade-off to revisit.
 
 ## 4. Stage 3: Optimizing in C
 TODO
@@ -206,7 +365,19 @@ TODO
 TODO
 
 ## 6. Correctness Gates
-TODO
+
+All host gates are run by [`ida/verify.c`](https://github.com/roger8877/minirubik/blob/main/ida/verify.c)
+against an exact BFS over all 3,674,160 states, built from the same transition tables.
+Output: [`ida/h3_result.txt`](https://github.com/roger8877/minirubik/blob/main/ida/h3_result.txt).
+
+| Gate | What is checked | Result |
+|---|---|---|
+| H1 | h ≤ exact distance for every state | PASS. Mean h 5.144, mean distance 8.756; h is exact for 17,108 states |
+| H2 | `perm_dist` and `orient_dist` fully populated, solved entry 0, no other zero; every column of `perm_move` and `orient_move` is a permutation of the ranks | PASS. Max 7 and 6 |
+| H3 | the search returns a path of exactly the exact distance, and replaying it reaches solved, for every state | PASS. 252 s wall-clock (WSL, i5-14400F) |
+| H4 | packed accessor | not applicable: no table is packed (3.3) |
+
+T5–T7 (on Ripes): TODO after stage 4.
 
 ## 7. LED Matrix Visualization
 TODO
