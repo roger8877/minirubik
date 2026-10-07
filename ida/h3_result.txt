@@ -1,0 +1,53 @@
+H2 perm_dist: 5040 entries, all filled, max 7, solved entry 0, 1 zero entry
+H2 orient_dist: 729 entries, all filled, max 6, solved entry 0, 1 zero entry
+H2 perm_move: all 9 columns are permutations of 0..5039
+H2 orient_move: all 9 columns are permutations of 0..728
+H1 PASS: h <= distance for all 3674160 states; mean h 5.144, mean distance 8.756, h exact for 17108 states
+H3 PASS: every state solved at exactly its distance (252.0 s)
+distance  states  mean nodes  max nodes
+       0       1         1.0          1
+       1       9         6.0         10
+       2      54         9.5         16
+       3     321        13.2         32
+       4    1847        19.6        147
+       5    9992        41.0        646
+       6   50136       131.2       1445
+       7  227536       561.7       3945
+       8  870072      2860.7      14756
+       9 1887748     13901.1      55585
+      10  623800     48135.8     250324
+      11    2644    206624.8     639798
+worst distance-11 states by nodes:
+  54721631111111  639798 nodes
+  14325671111111  628917 nodes
+  41752632313211  613539 nodes
+  21354672313211  607077 nodes
+  12745631111111  541658 nodes
+  52341671111111  537878 nodes
+  25714632313211  535678 nodes
+  45312672313211  525964 nodes
+  41625372313211  516409 nodes
+  47265312313211  515749 nodes
+	Command being timed: "./verify --all"
+	User time (seconds): 252.09
+	System time (seconds): 0.01
+	Percent of CPU this job got: 99%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 4:12.12
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 19200
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 5
+	Minor (reclaiming a frame) page faults: 4565
+	Voluntary context switches: 15
+	Involuntary context switches: 370
+	Swaps: 0
+	File system inputs: 256
+	File system outputs: 0
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

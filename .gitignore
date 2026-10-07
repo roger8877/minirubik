@@ -7,5 +7,9 @@ mini
 notes/assignment1.md
 notes/solver_annotated.c
 CLAUDE.local.md
+# Host binaries of the IDA* tools (tables.h/tables.s are kept: Ripes needs tables.s)
+ida/gen
+ida/ida
+ida/verify
 # Ripes per-run reports; results_log.csv keeps every run
 ripes-test/*.txt
