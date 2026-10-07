@@ -16,7 +16,9 @@
 
 enum { MAX_DEPTH = 11, NO_FACE = 3 };
 
+#ifdef COUNT_NODES
 static unsigned long search_nodes; /* dfs() calls, for measurement only */
+#endif
 
 static inline unsigned heuristic(uint16_t p, uint16_t o)
 {
@@ -31,7 +33,9 @@ static inline unsigned heuristic(uint16_t p, uint16_t o)
 static int dfs(uint16_t p, uint16_t o, unsigned g, unsigned bound,
                unsigned last_face, uint8_t path[MAX_DEPTH])
 {
+#ifdef COUNT_NODES
     ++search_nodes;
+#endif
     unsigned h = heuristic(p, o);
     if (g + h > bound) /* cannot finish within bound: prune */
         return 0;

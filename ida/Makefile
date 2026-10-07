@@ -8,13 +8,13 @@ all: ida verify
 gen: gen.c cube.h
 	$(CC) $(CFLAGS) $< -o $@
 
-tables.h tables.s: gen
+tables.h tables2.h tables.s: gen
 	./gen
 
-ida: ida.c cube.h search.h tables.h
+ida: ida.c cube.h search2.h tables2.h
 	$(CC) $(CFLAGS) $< -o $@
 
-verify: verify.c cube.h search.h tables.h
+verify: verify.c cube.h search.h search2.h tables.h tables2.h
 	$(CC) $(CFLAGS) $< -o $@
 
 check: ida verify
@@ -22,4 +22,4 @@ check: ida verify
 	./ida 21345671111111
 
 clean:
-	rm -f gen ida verify tables.h tables.s
+	rm -f gen ida verify tables.h tables2.h tables.s

@@ -11,5 +11,6 @@ CLAUDE.local.md
 ida/gen
 ida/ida
 ida/verify
+ida/*.elf
 # Ripes per-run reports; results_log.csv keeps every run
 ripes-test/*.txt

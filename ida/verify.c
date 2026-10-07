@@ -1,16 +1,21 @@
 /* Host correctness gates against the exact BFS distance of every state.
  *
- *   ./verify        H1 (admissibility) and H2 (tables complete)
- *   ./verify --all  also H3: solve all 3,674,160 states, check every length,
- *                   and report search cost per distance plus the worst states
+ *   ./verify        H1 (admissibility) and H2 (tables complete, both layouts)
+ *   ./verify --all  also H3 with the version 2 search: solve all 3,674,160
+ *                   states, check every length, report search cost per
+ *                   distance and the worst states, and confirm on every
+ *                   distance-11 state that version 2 visits exactly the
+ *                   nodes version 1 visits
  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
+#define COUNT_NODES
 #include "cube.h"
 #include "search.h"
+#include "search2.h"
 
 enum { WORST = 10 };
 
@@ -104,55 +109,107 @@ static int check_admissible(void)
     return 1;
 }
 
+/* H2 for the version 2 layout: every row must be the version 1 row scaled,
+ * with the distance in entry 9.
+ */
+static int check_v2_tables(void)
+{
+    for (unsigned r = 0; r < PERMUTATIONS; ++r) {
+        for (unsigned m = 0; m < MOVES; ++m)
+            if (perm_tab[r][m] != perm_move[r][m] * 10U)
+                return printf("H2 FAIL: perm_tab[%u][%u]\n", r, m), 0;
+        if (perm_tab[r][DIST] != perm_dist[r])
+            return printf("H2 FAIL: perm_tab[%u] distance\n", r), 0;
+    }
+    for (unsigned r = 0; r < ORIENTATIONS; ++r) {
+        for (unsigned m = 0; m < MOVES; ++m)
+            if (orient_tab[r][m] != orient_move[r][m] * 20U)
+                return printf("H2 FAIL: orient_tab[%u][%u]\n", r, m), 0;
+        if (orient_tab[r][DIST] != orient_dist[r])
+            return printf("H2 FAIL: orient_tab[%u] distance\n", r), 0;
+    }
+    printf("H2 perm_tab/orient_tab: every row matches the version 1 tables "
+           "(%zu bytes)\n",
+           sizeof perm_tab + sizeof orient_tab);
+    return 1;
+}
+
 static int check_all_solutions(void)
 {
     unsigned long long total[12] = {0}, max_nodes[12] = {0}, count[12] = {0};
-    unsigned long worst_nodes[WORST] = {0};
+    unsigned long long pushed[12] = {0};
+    unsigned long worst_nodes[WORST] = {0}, worst_pushed[WORST] = {0};
     uint32_t worst_state[WORST] = {0};
-    uint8_t path[MAX_DEPTH];
+    uint8_t path[MAX_DEPTH2], path1[MAX_DEPTH];
     clock_t start = clock();
     for (uint32_t s = 0; s < STATES; ++s) {
-        uint16_t p = (uint16_t) (s / ORIENTATIONS);
-        uint16_t o = (uint16_t) (s % ORIENTATIONS);
-        search_nodes = 0;
-        unsigned length = solve(p, o, path);
+        unsigned P = s / ORIENTATIONS * 10, O = s % ORIENTATIONS * 20;
+        unsigned h0 = heuristic2(P, O);
+        v2_generated = v2_expanded = 0;
+        unsigned length = solve2(P, O, path);
         for (unsigned i = 0; i < length; ++i) {
-            p = perm_move[p][path[i]];
-            o = orient_move[o][path[i]];
+            P = perm_row(P)[path[i]];
+            O = orient_row(O)[path[i]];
         }
-        if (length != exact[s] || p != 0 || o != 0) {
+        if (length != exact[s] || P != 0 || O != 0) {
             printf("H3 FAIL: state %u: length %u, exact %u, end (%u, %u)\n",
-                   s, length, exact[s], p, o);
+                   s, length, exact[s], P, O);
             return 0;
         }
+        /* Version 1 counts one dfs() call per node: the root once per
+         * deepening iteration (bounds h0..length) plus every child generated.
+         * Version 2 must visit exactly the same nodes.
+         */
+        unsigned long nodes = v2_generated + (length - h0 + 1);
         unsigned d = exact[s];
+        if (d == 11) {
+            search_nodes = 0;
+            solve((uint16_t) (s / ORIENTATIONS), (uint16_t) (s % ORIENTATIONS),
+                  path1);
+            if (search_nodes != nodes) {
+                printf("H3 FAIL: state %u: version 1 %lu nodes, version 2 "
+                       "%lu\n",
+                       s, search_nodes, nodes);
+                return 0;
+            }
+        }
         ++count[d];
-        total[d] += search_nodes;
-        if (search_nodes > max_nodes[d])
-            max_nodes[d] = search_nodes;
-        if (d == 11 && search_nodes > worst_nodes[WORST - 1]) {
+        total[d] += nodes;
+        pushed[d] += v2_expanded;
+        if (nodes > max_nodes[d])
+            max_nodes[d] = nodes;
+        if (d == 11 && nodes > worst_nodes[WORST - 1]) {
             unsigned i = WORST - 1;
-            for (; i > 0 && worst_nodes[i - 1] < search_nodes; --i) {
+            for (; i > 0 && worst_nodes[i - 1] < nodes; --i) {
                 worst_nodes[i] = worst_nodes[i - 1];
+                worst_pushed[i] = worst_pushed[i - 1];
                 worst_state[i] = worst_state[i - 1];
             }
-            worst_nodes[i] = search_nodes;
+            worst_nodes[i] = nodes;
+            worst_pushed[i] = v2_expanded;
             worst_state[i] = s;
         }
     }
-    printf("H3 PASS: every state solved at exactly its distance (%.1f s)\n",
+    printf("H3 PASS: every state solved at exactly its distance by version "
+           "2 (%.1f s);\n"
+           "         on all distance-11 states version 1 visits the same "
+           "nodes\n",
            (double) (clock() - start) / CLOCKS_PER_SEC);
-    printf("distance  states  mean nodes  max nodes\n");
+    printf("nodes = root + children generated; pushed = nodes not pruned\n");
+    printf("distance  states  mean nodes  max nodes  mean pushed  pushed/nodes\n");
     for (unsigned d = 0; d < 12; ++d)
-        printf("%8u %7llu %11.1f %10llu\n", d, count[d],
-               count[d] ? (double) total[d] / count[d] : 0.0, max_nodes[d]);
-    printf("worst distance-11 states by nodes:\n");
+        printf("%8u %7llu %11.1f %10llu %12.1f %12.3f\n", d, count[d],
+               count[d] ? (double) total[d] / count[d] : 0.0, max_nodes[d],
+               count[d] ? (double) pushed[d] / count[d] : 0.0,
+               total[d] ? (double) pushed[d] / total[d] : 0.0);
+    printf("worst distance-11 states:\n");
     for (unsigned i = 0; i < WORST; ++i) {
         state_t state;
         char text[15];
         unrank_state(worst_state[i], &state);
         format_state(&state, text);
-        printf("  %s  %lu nodes\n", text, worst_nodes[i]);
+        printf("  %s  %lu nodes, %lu pushed\n", text, worst_nodes[i],
+               worst_pushed[i]);
     }
     return 1;
 }
@@ -168,7 +225,7 @@ int main(int argc, char **argv)
         !check_table("orient_dist", orient_dist, ORIENTATIONS) ||
         !check_moves("perm_move", &perm_move[0][0], PERMUTATIONS) ||
         !check_moves("orient_move", &orient_move[0][0], ORIENTATIONS) ||
-        !check_admissible())
+        !check_v2_tables() || !check_admissible())
         return 1;
     if (all && !check_all_solutions())
         return 1;
