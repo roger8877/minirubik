@@ -464,7 +464,30 @@ TODO
 ## 8. Pipeline Walkthrough
 TODO
 
+## Status at the Phase 1 Deadline
+
+Completed: stage 1 (both measurements), stage 2 (IDA* design, admissibility, gates H1-H3),
+stage 3 (version 2 search, measured on Ripes with gcc reference builds).
+
+Not yet completed: the hand-written RV32I assembly (stage 4), the Ripes gates T5-T7 for my own
+assembly, the LED matrix renderer and the pipeline walkthrough. The gcc builds in section 4.3
+already run on Ripes and stay under the instruction budget, but they are the reference, not my
+assembly. I will continue this work after the deadline and document it in later revisions.
+
 ## AI Usage Disclosure
-TODO: e.g. "Claude (Anthropic) was used to explain Ripes usage and RISC-V basics, to help write the
-measurement harness `measure.ps1`, and to translate/polish the English of this note from my drafts.
-All measurements were run by me, and the design decisions and analysis are my own."
+
+**My own work.** I wrote and ran every Ripes measurement program in `ripes-test/` and collected
+all the data in this note on my machine. I made the design decisions after comparing the
+options against these numbers: IDA* with max(permutation PDB, orientation PDB) as the
+heuristic, pruning repeated faces, the rank-based transition tables (option 2 in 3.3, chosen to
+spend memory on cheaper nodes while staying under 128 KiB), and the optimizations A-E in 4.1.
+I checked my understanding of each step by working through examples by hand (the R move in
+section 1, the pipeline cycle counts, the search traces) and by questioning the alternatives.
+
+**AI assistance.** I used Claude (Anthropic) as a tutor and coding assistant:
+
+- explanations of Ripes, RISC-V basics, IDA*, pattern databases and the original `solver.c`;
+- the measurement harness `ripes-test/measure.ps1`;
+- the C implementation in `ida/` (`cube.h`, `gen.c`, `search.h`, `search2.h`, `ida.c`,
+  `verify.c`, `ida_rv.c`, `build_rv.sh`), written by Claude from my design decisions above;
+- translating and polishing this note into English from my Chinese explanations.
