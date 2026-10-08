@@ -359,7 +359,86 @@ about 78 instructions per node available, the current design should fit; if the 
 measurement shows otherwise, this is the first trade-off to revisit.
 
 ## 4. Stage 3: Optimizing in C
-TODO
+
+Stage 2 fixed the algorithm and measured its cost in nodes. Stage 3 keeps the search exactly
+the same (same heuristic, same move order, same pruning) and reduces the instructions per node,
+because the hardest state allows about 78. The result,
+[`ida/search2.h`](https://github.com/roger8877/minirubik/blob/main/ida/search2.h), is the
+version the assembly follows.
+
+### 4.1 Changes and the operation counts behind them
+
+**A. Recursion becomes a loop over an explicit stack.** Each recursive call saves the return
+address and registers on the stack and restores them on return. Version 2 keeps one small
+frame per level: the state (P, O), the next move to try, the face to skip, and the remaining
+moves. 11 frames of 7 bytes replace 11 call frames, so memory goes down, not up, and the
+assembly needs no `jal`/`ret` per node.
+
+**B. A child is checked before it is pushed.** Version 1 enters every child and only then finds
+it must be pruned. Version 2 computes the child's h in the parent's loop, which version 1 did
+too, just one call later, and skips the child if it is pruned. The check is not extra work;
+what disappears is the push and pop for every pruned child. Measured over all states, only
+**16.7%** of nodes are pushed (table in 4.2): each expanded node generates about 6 children
+and about 5 of them are pruned.
+
+**C. Each distance moves into its transition row, and the pointers are pre-scaled.**
+Each row now has 10 halfwords: the 9 next states and the distance in entry 9. Looking up the
+next state used to need `p * 9` (a multiply, so shifts and adds on RV32I) and the distance
+needed a second table. Now the table entries already hold the scaled position of the next row:
+
+| Table | Entry holds | Address of the next row | Max entry |
+|---|---|---|---|
+| `perm_tab` | rank x 10 | base + entry x 2 (one shift) | 5039 x 10 = 50,390 |
+| `orient_tab` | rank x 20 | base + entry (no shift) | 728 x 20 = 14,560 |
+
+`perm_tab` cannot store rank x 20 directly, since 5039 x 20 = 100,780 does not fit in a
+16-bit entry, and 32-bit entries would double the table past 128 KiB. `orient_tab` can,
+because its ranks are small. Total size grows from 109,611 to 115,380 bytes, still under
+131,072.
+
+**D. Each frame stores the moves still allowed (`rem`).** Pruning used to test `g + h > bound`
+for every child. Now `rem = bound - g - 1` is computed once when a frame is pushed, and each
+child is tested with `h > rem`: one subtraction per push replaces one addition per child,
+and there are about 6 children per push.
+
+**E. One loop over moves 0..8.** Version 1 used a face loop and a turn loop and computed
+`face * 3 + turn`. Version 2 runs a single counter and, when it reaches the first move of the
+previous face (`skip`), jumps ahead by 3. This removes the second loop counter and the index
+arithmetic, a few instructions per node.
+
+At the root no move has been made, so `skip` is set to `NO_SKIP = 9`, a value no move number
+(0..8) can equal.
+
+### 4.2 Correctness of the restructuring
+
+Version 2 passes H3 on all 3,674,160 states (234.8 s). On every distance-11 state it also
+visits exactly the same nodes as version 1, which shows the changes altered how the search
+runs, not what it searches.
+
+| distance | mean nodes | mean pushed | pushed / nodes |
+|---|---|---|---|
+| 8 | 2,860.7 | 477.9 | 0.167 |
+| 9 | 13,901.1 | 2,317.9 | 0.167 |
+| 10 | 48,135.8 | 8,023.9 | 0.167 |
+| 11 | 206,624.8 | 34,438.9 | 0.167 |
+
+### 4.3 Measured on Ripes: gcc reference builds
+
+Both versions were compiled freestanding with
+`riscv64-unknown-elf-gcc -O2 -march=rv32i -mabi=ilp32` (no libc, no libgcc; input parsing and
+ranking use only adds and shifts, see
+[`ida/ida_rv.c`](https://github.com/roger8877/minirubik/blob/main/ida/ida_rv.c)) and run on
+RV32_ISS. The disassembly contains no `mul`, `div` or `rem`.
+
+| Build | `21345671111111` iret | `54721631111111` (hardest) iret | `.text` bytes |
+|---|---|---|---|
+| version 1 | 13,706,318 | 37,477,930 | 1,068 |
+| version 2 | 10,534,439 | 28,804,947 | 980 |
+| change | −23.1% | −23.1% | −8.2% |
+
+Version 2 spends about 45 instructions per node on the hardest state
+(28,804,947 / 639,798), below the 78 available. These gcc figures are the reference the
+hand-written assembly has to beat.
 
 ## 5. Stage 4: RV32I Assembly
 TODO
