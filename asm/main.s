@@ -5,6 +5,16 @@ perm_weight:    .half 7200, 1200, 240, 60, 20, 10
 face_start:     .byte 0, 0, 0, 3, 3, 3, 6, 6, 6
 path:           .zero 11
 input:          .string "25314672313211"
+names:          .string "R  "        # 4 bytes per name: name m is at names + 4m
+                .string "R2 "
+                .string "R' "
+                .string "B  "
+                .string "B2 "
+                .string "B' "
+                .string "D  "
+                .string "D2 "
+                .string "D' "
+bad:            .string "\npath does not reach solved\n"
 
 .text
 main:
@@ -202,13 +212,54 @@ ch_done:                    # a5 = ch
     j    loop
 
 already_solved:
-    li   a0, 0
-    j    print_len
+    li   s11, 0             # length = 0
+    j    replay_start
 found:
-    addi a0, s5, 1          # length = d + 1
-print_len:
-    li   a7, 1
+    addi s11, s5, 1         # length = d + 1
+
+# Replay the path from the root: print each move and apply it with the
+# same tables, so the program checks its own answer.
+replay_start:
+    mv   t0, s3             # P = root P
+    mv   t1, s10            # O = root O
+    li   t2, 0              # i = 0
+    la   t3, names
+replay:
+    beq  t2, s11, replay_done
+    add  t4, s8, t2
+    lbu  t5, 0(t4)          # m = path[i]
+    slli t6, t5, 2          # names are 4 bytes each
+    add  a0, t3, t6         # address of the move's name
+    li   a7, 4              # ecall 4: print string
     ecall
 
-    li   a7, 10             # exit
+    slli t6, t5, 1          # m * 2 (halfword entries)
+    slli t4, t0, 1
+    add  t4, s1, t4         # perm row of P
+    add  t4, t4, t6
+    lhu  t0, 0(t4)          # P = perm row entry m
+    add  t4, s2, t1         # orient row of O
+    add  t4, t4, t6
+    lhu  t1, 0(t4)          # O = orient row entry m
+    addi t2, t2, 1          # i++
+    j    replay
+
+replay_done:
+    li   a0, 10             # '\n'
+    li   a7, 11
+    ecall
+    mv   a0, s11            # print the length
+    li   a7, 1
+    ecall
+    bne  t0, zero, fail     # must end at P = 0
+    bne  t1, zero, fail     # and O = 0
+    li   a0, 0              # exit status 0: verified
+    li   a7, 93             # ecall 93: exit with status a0
+    ecall
+fail:
+    la   a0, bad
+    li   a7, 4
+    ecall
+    li   a0, 1              # exit status 1: wrong answer
+    li   a7, 93
     ecall
