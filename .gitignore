@@ -6,11 +6,14 @@ mini
 # Private study material and local notes, not part of the submission
 notes/assignment1.md
 notes/solver_annotated.c
+notes/video-outline.md
 CLAUDE.local.md
 # Host binaries of the IDA* tools (tables.h/tables.s are kept: Ripes needs tables.s)
 ida/gen
 ida/ida
 ida/verify
 ida/*.elf
+# asm/solver.s is generated: ida/tables.s followed by asm/main.s
+asm/solver.s
 # Ripes per-run reports; results_log.csv keeps every run
 ripes-test/*.txt

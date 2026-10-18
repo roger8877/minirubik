@@ -1,7 +1,10 @@
 .data
-input:          .string "25314672313211"
+frames:         .zero 88         # 11 frames x 8 bytes
 orient_weight:  .half 4860, 1620, 540, 180, 60, 20
 perm_weight:    .half 7200, 1200, 240, 60, 20, 10
+face_start:     .byte 0, 0, 0, 3, 3, 3, 6, 6, 6
+path:           .zero 11
+input:          .string "25314672313211"
 
 .text
 main:
@@ -91,6 +94,51 @@ p_skip:
 
     # print P
     mv   a0, s3
+    li   a7, 1
+    ecall
+    li   a0, 10             # '\n'
+    li   a7, 11
+    ecall
+
+    # Register use in the search:
+    # s0 = frames, s1 = perm_tab, s2 = orient_tab
+    # s3 = root P, s10 = root O
+    # s4 = bound, s5 = d, s6 = address of the current frame
+    # s7 = face_start, s8 = path, s9 = 9 (moves per node)
+    # Frame layout (8 bytes): P half @0, O half @2, next @4, skip @5, rem @6
+
+    mv   s10, t3            # keep root O in a saved register
+    la   s0, frames
+    la   s1, perm_tab
+    la   s2, orient_tab
+    la   s7, face_start
+    la   s8, path
+    li   s9, 9
+
+    # h(root) = max(perm_tab row entry 9, orient_tab row entry 9)
+    slli t0, s3, 1          # P * 2 = byte offset of the perm row
+    add  t0, s1, t0
+    lhu  t1, 18(t0)         # hp = entry 9 (9 * 2 = 18 bytes in)
+    add  t2, s2, s10        # O is already a byte offset
+    lhu  t4, 18(t2)         # ho = entry 9
+    bgeu t1, t4, h_done
+    mv   t1, t4             # h = max(hp, ho)
+h_done:
+    mv   s4, t1             # bound = h(root)
+
+iter:                       # one deepening iteration
+    li   s5, 0              # d = 0
+    mv   s6, s0             # frame 0 is at the start of frames
+    sh   s3, 0(s6)          # frame.P = root P
+    sh   s10, 2(s6)         # frame.O = root O
+    sb   zero, 4(s6)        # frame.next = 0
+    li   t0, 9
+    sb   t0, 5(s6)          # frame.skip = NO_SKIP (9)
+    addi t0, s4, -1
+    sb   t0, 6(s6)          # frame.rem = bound - 1
+
+    # temporary: print bound to check
+    mv   a0, s4
     li   a7, 1
     ecall
 
