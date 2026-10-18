@@ -125,6 +125,7 @@ p_skip:
     mv   t1, t4             # h = max(hp, ho)
 h_done:
     mv   s4, t1             # bound = h(root)
+    beq  s4, zero, already_solved
 
 iter:                       # one deepening iteration
     li   s5, 0              # d = 0
@@ -137,8 +138,75 @@ iter:                       # one deepening iteration
     addi t0, s4, -1
     sb   t0, 6(s6)          # frame.rem = bound - 1
 
-    # temporary: print bound to check
-    mv   a0, s4
+
+# Main loop: one pass handles one move of the frame at depth d.
+loop:
+    slli t0, s5, 3          # d * 8
+    add  s6, s0, t0         # s6 = address of frame d
+    lbu  t1, 4(s6)          # m = frame.next
+    lbu  t2, 5(s6)          # first move of the previous face
+    bne  t1, t2, no_skip
+    addi t1, t1, 3          # jump over the previous face
+no_skip:
+    bltu t1, s9, try_move   # m < 9: try it
+    beq  s5, zero, next_bound
+    addi s5, s5, -1         # all moves tried: pop to the parent frame
+    j    loop
+
+next_bound:                 # every move at the root failed
+    addi s4, s4, 1          # bound++
+    j    iter               # start the next iteration
+
+try_move:
+    addi t2, t1, 1
+    sb   t2, 4(s6)          # frame.next = m + 1
+
+    # Child state: entry m of this node's two rows
+    slli t3, t1, 1          # m * 2 (halfword entries)
+    lhu  t4, 0(s6)          # this node's P
+    slli t4, t4, 1
+    add  t4, s1, t4         # perm row of this node
+    add  t4, t4, t3
+    lhu  a3, 0(t4)          # cP = perm row entry m
+    lhu  t5, 2(s6)          # this node's O
+    add  t5, s2, t5         # orient row of this node (O is a byte offset)
+    add  t5, t5, t3
+    lhu  a4, 0(t5)          # cO = orient row entry m
+
+    # ch = max(distance in row cP, distance in row cO)
+    slli t4, a3, 1
+    add  t4, s1, t4
+    lhu  a5, 18(t4)         # hp
+    add  t5, s2, a4
+    lhu  t6, 18(t5)         # ho
+    bgeu a5, t6, ch_done
+    mv   a5, t6
+ch_done:                    # a5 = ch
+    lbu  a6, 6(s6)          # rem
+    bltu a6, a5, loop       # ch > rem: prune
+    add  t4, s8, s5         # address of path[d]
+    sb   t1, 0(t4)          # path[d] = m
+    beq  a5, zero, found    # only the solved state has h == 0
+
+    # Push the child as frame d + 1
+    addi s5, s5, 1          # d++
+    addi s6, s6, 8          # next frame
+    sh   a3, 0(s6)          # child.P
+    sh   a4, 2(s6)          # child.O
+    sb   zero, 4(s6)        # child.next = 0
+    add  t4, s7, t1
+    lbu  t4, 0(t4)          # face_start[m]
+    sb   t4, 5(s6)          # child.skip
+    addi a6, a6, -1
+    sb   a6, 6(s6)          # child.rem = rem - 1
+    j    loop
+
+already_solved:
+    li   a0, 0
+    j    print_len
+found:
+    addi a0, s5, 1          # length = d + 1
+print_len:
     li   a7, 1
     ecall
 
