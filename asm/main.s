@@ -1,6 +1,7 @@
 .data
 input:          .string "25314672313211"
 orient_weight:  .half 4860, 1620, 540, 180, 60, 20
+perm_weight:    .half 7200, 1200, 240, 60, 20, 10
 
 .text
 main:
@@ -45,5 +46,53 @@ o_next:
     mv   a0, t3
     li   a7, 1
     ecall
-    li   a7, 10
+    li   a0, 10             # '\n'
+    li   a7, 11             # ecall 11: print character
+    ecall
+
+    # Register use:
+    # s0 = address of input
+    # s1 = i, 0..5
+    # s2 = j, i+1..6
+    # s3 = P, permutation rank * 10
+    # s4 = address of perm_weight
+    # s5 = input[i], s6 = input[j], s7 = weight of digit i
+    # s8 = 6, s9 = 7, loop limits
+
+    la   s0, input
+    la   s4, perm_weight
+    li   s1, 0
+    li   s3, 0
+    li   s8, 6
+    li   s9, 7
+
+# Permutation rank (Lehmer code): for each position i, add perm_weight[i]
+# once for every later digit that is smaller. The weights are the
+# factorials 6!..1! pre-scaled by 10, the row index in perm_tab.
+p_outer:
+    add  a1, s0, s1
+    lbu  s5, 0(a1)          # s5 = input[i]
+    slli a2, s1, 1          # halfword offset i * 2
+    add  a2, s4, a2
+    lhu  s7, 0(a2)          # weight = perm_weight[i]
+    addi s2, s1, 1          # j = i + 1
+
+p_inner:
+    add  a1, s0, s2
+    lbu  s6, 0(a1)          # s6 = input[j]
+    bgeu s6, s5, p_skip     # count only smaller digits
+    add  s3, s3, s7         # P += weight
+p_skip:
+    addi s2, s2, 1          # j++
+    blt  s2, s9, p_inner
+
+    addi s1, s1, 1          # i++
+    blt  s1, s8, p_outer
+
+    # print P
+    mv   a0, s3
+    li   a7, 1
+    ecall
+
+    li   a7, 10             # exit
     ecall
