@@ -5,12 +5,6 @@
 > **Host:** Intel Core i5-14400F, 15.8 GiB RAM, Windows 11
 > **Conventions:** "code size" = bytes of linked `.text` with `RENDER=0`; "retired instructions" = Ripes `--iret` on `RV32_ISS` with the same input. "MiB" = 2^20 bytes.
 
-<!--
-寫作規則（貼上 HackMD 前刪掉這段）：
-- TODO 的地方要用你自己的話寫（中文寫給我也可以，我幫你翻成英文），不要讓 AI 代寫分析。
-- 每完成一節就貼上 HackMD 一次，留下多個 revision。
--->
-
 ## 1. The State Space
 
 TODO (later): group order 3,674,160 = 7! x 3^6, the 9 HTM generators, Cayley graph,

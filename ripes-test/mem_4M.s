@@ -1,14 +1,17 @@
+# Guest-memory footprint test: store words over N = 4194304 bytes from 0x20000000.
+# The address is base + (offset & mask); mask = -1, so every store hits a new address.
+# mem_*.s and ctrl_*.s run the same instructions and differ only in the mask.
 .text
 main:
-    li   t0, 0x20000000   # base：要寫入的起始位址
-    li   t1, 0            # offset = 0
-    li   t2, 4194304           # 結束值：寫 64 bytes
-    li t4, -1
+    li   t0, 0x20000000     # base, outside .text and .data
+    li   t1, 0              # offset
+    li   t2, 4194304       # N, bytes to cover
+    li   t4, -1           # mask
 loop:
-    and t3, t1, t4
-    add t3, t0, t3
-    sw   t1, 0(t3)      # 把 offset 的值寫進去
-    addi t1, t1, 4     # 前進一個 word，一個 word 是幾 bytes？
-    blt  t1, t2, loop # 如果 offset < 64 就繼續
-    li   a7, 10
+    and  t3, t1, t4
+    add  t3, t0, t3         # address = base + (offset & mask)
+    sw   t1, 0(t3)
+    addi t1, t1, 4          # next word
+    blt  t1, t2, loop
+    li   a7, 10             # exit
     ecall
