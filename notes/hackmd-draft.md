@@ -435,7 +435,83 @@ Version 2 spends about 45 instructions per node on the hardest state
 hand-written assembly has to beat.
 
 ## 5. Stage 4: RV32I Assembly
-TODO
+
+Source: [`asm/main.s`](https://github.com/roger8877/minirubik/blob/main/asm/main.s). Ripes cannot
+include files, so the program is assembled as one file, the generated tables followed by the
+program: `ida/tables.s` + `asm/main.s` → `asm/solver.s`. The input is the 14-character string
+`input` in `.data`.
+
+The program has four parts, built and checked one at a time on Ripes:
+
+| Part | What it does | Checked by |
+|---|---|---|
+| ranking | turns the input string into O and P | printed values against the C ranks for 4 inputs |
+| setup | h(root), bound, frame 0 | printed bound (7 and 6 for the two vectors below) |
+| search | the loop of `search2.h` over an explicit frame stack | printed solution length |
+| replay | prints each move and applies it again from the root | exit status 0 only if it ends at P = O = 0 |
+
+### 5.1 Instruction sequences that RV32I forces
+
+**Ranking without multiply.** The orientation rank is a base-3 number and the permutation rank
+a Lehmer code, both normally computed with multiplications. Here each digit adds a pre-scaled
+weight instead: an orientation digit c (0..2) adds its weight c times, and each smaller later
+digit adds the position's weight once. The weights already include the x20 and x10 scaling, so
+the result is directly the row position used by the tables.
+
+```asm
+o_add:                      # add the weight c times (no multiply in RV32I)
+    beq  t5, zero, o_next
+    add  t3, t3, t6         # O += weight
+    addi t5, t5, -1         # c--
+    j    o_add
+```
+
+**Following a table pointer.** Because the entries are pre-scaled (4.1 C), going to the next
+row costs one shift for `perm_tab` and none for `orient_tab`, and the distance in entry 9 is
+read with the load's immediate offset, 9 x 2 = 18 bytes, instead of a separate add:
+
+```asm
+    slli t4, a3, 1
+    add  t4, s1, t4         # perm row of cP
+    lhu  a5, 18(t4)         # hp = entry 9
+    add  t5, s2, a4         # orient row of cO, no shift
+    lhu  t6, 18(t5)         # ho = entry 9
+```
+
+**Frames.** Each frame is 8 bytes (P halfword at 0, O halfword at 2, next/skip/rem bytes at 4,
+5, 6), so frame d is at `frames + (d << 3)`. Field sizes decide the store: `sh` for P and O,
+`sb` for the byte fields, since a wider store would overwrite the neighbouring field.
+
+**Registers.** Everything that stays fixed during the search lives in saved registers (table
+bases, root state, bound, depth, current frame address), so the inner loop only loads the
+frame fields and the table entries it needs.
+
+### 5.2 Results
+
+`--iret` on RV32_ISS, same inputs as 4.3:
+
+| Build | `21345671111111` iret | `54721631111111` (hardest) iret | `.text` bytes |
+|---|---|---|---|
+| gcc -O2, version 2 C | 10,534,439 | 28,804,947 | 980 |
+| **my assembly** | **7,077,055** | **19,350,087** | **696** |
+| change | −32.8% | −32.8% | −29.0% |
+
+- The hardest distance-11 state needs 19,350,087 retired instructions, **below the 5 x 10^7
+  budget**, about 30 instructions per node (19,350,087 / 639,798).
+- Static data (`.data`, no `.bss`/`.rodata`): **115,592 bytes**, of which 115,380 are the
+  tables, below 131,072.
+- `.text` size was measured by assembling the same file with `riscv64-unknown-elf-as
+  -march=rv32i`; the counts include printing the two ranks and the solution.
+- Both solutions are identical to the C version's:
+  `21345671111111` → `R B' D2 R' B R' B' R D2 R B`,
+  `54721631111111` → `B2 R' B R' D' B R2 B R B D'`.
+
+I have not yet compared the two instruction by instruction. A likely reason for the gap is that
+the assembly keeps all fixed values (table bases, root state, bound, depth) in saved registers
+for the whole search; checking this against the gcc disassembly is future work.
+
+The renderer is not yet written, so there is no `RENDER` switch yet; the numbers above are for
+the program without any LED code.
 
 ## 6. Correctness Gates
 
@@ -450,7 +526,20 @@ Output: [`ida/h3_result.txt`](https://github.com/roger8877/minirubik/blob/main/i
 | H3 | the search returns a path of exactly the exact distance, and replaying it reaches solved, for every state | PASS. 252 s wall-clock (WSL, i5-14400F) |
 | H4 | packed accessor | not applicable: no table is packed (3.3) |
 
-T5–T7 (on Ripes): TODO after stage 4.
+On Ripes, with my assembly:
+
+| Gate | Check | Result |
+|---|---|---|
+| T5 | the program replays its own path and exits with status 0 only if it reaches P = O = 0 | PASS for every input below |
+| T6 | `21345671111111` returns an optimal 11-move solution | PASS: `R B' D2 R' B R' B' R D2 R B` |
+| T7 | my test cases on RV32_ISS and on a pipeline model | PASS, see below |
+
+| Test case | RV32_ISS | RV32_5S |
+|---|---|---|
+| solved `12345671111111` | 0 moves, 275 instructions | 0 moves, 432 cycles, 274 instructions |
+| short scramble (one R) `25314672313211` | `R'`, 410 instructions | `R'`, 609 cycles, 409 instructions |
+| distance 11 `21345671111111` | 11 moves, 7,077,055 instructions | 11 moves, 10,159,142 cycles, 7,077,054 instructions |
+| hardest distance 11 `54721631111111` | 11 moves, 19,350,087 instructions | not run (about 70 s at the measured rate) |
 
 ## 7. LED Matrix Visualization
 TODO
@@ -458,15 +547,15 @@ TODO
 ## 8. Pipeline Walkthrough
 TODO
 
-## Status at the Phase 1 Deadline
+## Status
 
 Completed: stage 1 (both measurements), stage 2 (IDA* design, admissibility, gates H1-H3),
-stage 3 (version 2 search, measured on Ripes with gcc reference builds).
+stage 3 (version 2 search, gcc reference builds on Ripes), stage 4 (RV32I assembly within the
+budget and beating gcc, gates T5-T7).
 
-Not yet completed: the hand-written RV32I assembly (stage 4), the Ripes gates T5-T7 for my own
-assembly, the LED matrix renderer and the pipeline walkthrough. The gcc builds in section 4.3
-already run on Ripes and stay under the instruction budget, but they are the reference, not my
-assembly. I will continue this work after the deadline and document it in later revisions.
+Not yet completed: the LED matrix renderer (and with it the `RENDER` switch) and the
+instruction-level pipeline walkthrough (section 8). I will continue them after submission and
+document them in later revisions.
 
 ## AI Usage Disclosure
 
@@ -484,4 +573,7 @@ section 1, the pipeline cycle counts, the search traces) and by questioning the 
 - the measurement harness `ripes-test/measure.ps1`;
 - the C implementation in `ida/` (`cube.h`, `gen.c`, `search.h`, `search2.h`, `ida.c`,
   `verify.c`, `ida_rv.c`, `build_rv.sh`), written by Claude from my design decisions above;
+- the RV32I assembly: Claude guided me part by part with a skeleton for each part (its
+  structure, the register plan and part of the instructions) and reviewed my code; I completed
+  the remaining instructions and ran and debugged every part on Ripes;
 - translating and polishing this note into English from my Chinese explanations.
